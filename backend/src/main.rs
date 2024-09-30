@@ -3,38 +3,42 @@ use actix_cors::Cors;
 use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
-// Define the Task struct
+// Define the Task struct with an id
 #[derive(Clone, Serialize, Deserialize, Debug)] // Added Debug here
 struct Task {
     id: usize,
     task: String,
 }
 
-// The app state will hold a Mutex for safe concurrent access
+// Define a NewTask struct without id for incoming POST requests
+#[derive(Deserialize, Debug)] // Added Debug here
+struct NewTask {
+    task: String,
+}
+
+// AppState will hold a Mutex for the task list
 struct AppState {
     tasks: Mutex<Vec<Task>>,
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Initialize the app state with an empty task list
     let app_state = web::Data::new(AppState {
         tasks: Mutex::new(Vec::new()),
     });
 
-    // Start the HTTP server
     HttpServer::new(move || {
         let cors = Cors::default()
-            .allowed_origin("http://localhost:3000") // Allow requests from your frontend
-            .allowed_methods(vec!["GET", "POST"]) // Allow GET and POST methods
+            .allowed_origin("http://localhost:3000") // Allow frontend origin
+            .allowed_methods(vec!["GET", "POST"])    // Allow GET and POST
             .allowed_headers(vec!["Content-Type"])
             .max_age(3600);
 
         App::new()
             .app_data(app_state.clone())
-            .wrap(cors) // Enable CORS middleware
-            .route("/tasks", web::get().to(get_tasks))
-            .route("/tasks", web::post().to(add_task))
+            .wrap(cors) // Enable CORS
+            .route("/tasks", web::get().to(get_tasks)) // GET tasks route
+            .route("/tasks", web::post().to(add_task)) // POST tasks route
     })
     .bind("127.0.0.1:8080")?
     .run()
@@ -44,28 +48,28 @@ async fn main() -> std::io::Result<()> {
 // Handler to get the list of tasks
 async fn get_tasks(state: web::Data<AppState>) -> impl Responder {
     let tasks = state.tasks.lock().unwrap();
-    web::Json(tasks.clone()) // Clone the task list and return as JSON
+    web::Json(tasks.clone()) // Clone task list and return as JSON
 }
 
 // Handler to add a new task
-async fn add_task(state: web::Data<AppState>, task: web::Json<Task>) -> impl Responder {
+async fn add_task(state: web::Data<AppState>, new_task: web::Json<NewTask>) -> impl Responder {
     let mut tasks = state.tasks.lock().unwrap();
 
-    // Generate a new ID based on the length of the task list
+    // Debug log to show the received task payload
+    println!("Received new task: {:?}", new_task);
+
+    // Generate a new ID based on the number of tasks
     let new_id = tasks.len() + 1;
 
-    // Create a new task
-    let new_task = Task {
+    // Create a new task with the generated ID
+    let task = Task {
         id: new_id,
-        task: task.task.clone(), // Use .clone() to avoid moving the task out
+        task: new_task.task.clone(),
     };
 
-    // Push the new task to the list
-    tasks.push(new_task.clone());
+    // Add the new task to the task list
+    tasks.push(task.clone());
 
-    // Log the new task (optional)
-    println!("Added task: {:?}", new_task); // Now it will work without errors
-
-    // Return a response with the newly created task
-    HttpResponse::Created().json(new_task) // Return 201 Created with the new task as JSON
+    // Respond with the newly created task as JSON
+    HttpResponse::Created().json(task) // Return 201 Created with the new task
 }
