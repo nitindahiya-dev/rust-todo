@@ -1,10 +1,11 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
-// Define the Task interface with a status field
+// Define the Task interface with a reminder field
 interface Task {
   id: number;
   task: string;
-  status: 'Pending' | 'Completed'; // Add status
+  status: "Pending" | "Completed";
+  reminder: Date | null; // Add reminder field
 }
 
 // Define the initial state interface
@@ -19,27 +20,32 @@ const initialState: TasksState = {
 
 // Create the slice
 const tasksSlice = createSlice({
-  name: 'tasks',
+  name: "tasks",
   initialState,
   reducers: {
-    addTask: (state, action: PayloadAction<Omit<Task, 'status'>>) => {
-      state.tasks.push({ ...action.payload, status: 'Pending' }); // Add new task with 'Pending' status by default
+    addTask: (state, action: PayloadAction<Omit<Task, "status" | "reminder">>) => {
+      state.tasks.push({ ...action.payload, status: "Pending", reminder: null });
     },
     deleteTask: (state, action: PayloadAction<number>) => {
-      state.tasks = state.tasks.filter(task => task.id !== action.payload); // Remove task by ID
+      state.tasks = state.tasks.filter((task) => task.id !== action.payload);
     },
     toggleStatus: (state, action: PayloadAction<number>) => {
-      const task = state.tasks.find(task => task.id === action.payload);
+      const task = state.tasks.find((task) => task.id === action.payload);
       if (task) {
-        // Toggle the task's status between 'Pending' and 'Completed'
-        task.status = task.status === 'Pending' ? 'Completed' : 'Pending';
+        task.status = task.status === "Pending" ? "Completed" : "Pending";
+      }
+    },
+    setReminder: (state, action: PayloadAction<{ id: number; reminder: Date }>) => {
+      const task = state.tasks.find((task) => task.id === action.payload.id);
+      if (task) {
+        task.reminder = action.payload.reminder;
       }
     },
   },
 });
 
 // Export actions
-export const { addTask, deleteTask, toggleStatus } = tasksSlice.actions;
+export const { addTask, deleteTask, toggleStatus, setReminder } = tasksSlice.actions;
 
-// Export the reducer to be used in the store
+// Export the reducer
 export default tasksSlice.reducer;
