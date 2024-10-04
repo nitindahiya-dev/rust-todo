@@ -5,8 +5,9 @@ interface Task {
   id: number;
   task: string;
   status: "Pending" | "Completed";
-  reminder: Date | null; // Add reminder field
+  reminder: string | null; // Update to string | null
 }
+
 
 // Define the initial state interface
 interface TasksState {
@@ -35,7 +36,7 @@ const tasksSlice = createSlice({
         task.status = task.status === "Pending" ? "Completed" : "Pending";
       }
     },
-    setReminder: (state, action: PayloadAction<{ id: number; reminder: Date }>) => {
+    setReminder: (state, action: PayloadAction<{ id: number; reminder: string }>) => {
       const task = state.tasks.find((task) => task.id === action.payload.id);
       if (task) {
         task.reminder = action.payload.reminder;

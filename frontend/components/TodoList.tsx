@@ -1,18 +1,17 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { deleteTask, toggleStatus, setReminder } from "../slice/tasksSlice";
 import { RootState } from "../store/store";
 import { Trash2, Clock } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
-import { formatDistanceToNow } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Task {
   id: number;
   task: string;
   status: string;
-  reminder?: Date; // Update to allow only Date
+  reminder?: string; // Reminder stored as a string (ISO format)
 }
 
 const TodoList: React.FC = () => {
@@ -20,24 +19,80 @@ const TodoList: React.FC = () => {
   const dispatch = useDispatch();
 
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined); // Update to allow undefined
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [removalQueue, setRemovalQueue] = useState<number | null>(null); // Track the task being removed
+  const [remainingTimes, setRemainingTimes] = useState<{ [key: number]: string }>({});
 
-  const handleDeleteTask = (id: number) => {
-    dispatch(deleteTask(id));
-    setConfirmDeleteId(null); // Reset confirmation ID after deletion
-  };
+  // Handle task removal after marking it as completed
+  useEffect(() => {
+    if (removalQueue !== null) {
+      const timer = setTimeout(() => {
+        dispatch(deleteTask(removalQueue));
+        setRemovalQueue(null);
+      }, 3000); // 3-second delay
 
-  const handleToggleStatus = (id: number) => {
-    dispatch(toggleStatus(id));
-  };
+      return () => clearTimeout(timer);
+    }
+  }, [removalQueue, dispatch]);
 
+  // Function to set the reminder for a task
   const handleSetReminder = (id: number, reminderDate: Date | undefined) => {
     if (reminderDate) {
-      dispatch(setReminder({ id, reminder: reminderDate }));
-      setSelectedTaskId(null); // Close the popover after setting the reminder
+      dispatch(setReminder({ id, reminder: reminderDate.toISOString() })); // Store as ISO string
+      setSelectedTaskId(null); // Close the reminder picker after setting
     }
   };
+
+  // Function to handle toggling task status
+  const handleToggleStatus = (id: number) => {
+    dispatch(toggleStatus(id));
+
+    // Add to the removal queue if the task is marked as completed
+    const task = tasks.find((task) => task.id === id);
+    if (task?.status === "Pending") {
+      setRemovalQueue(id);
+    }
+  };
+
+  // Function to handle deleting a task
+  const handleDeleteTask = (id: number) => {
+    dispatch(deleteTask(id)); // Dispatch delete action
+    setConfirmDeleteId(null); // Close the confirmation popup
+  };
+
+  // Function to calculate remaining time for reminders
+  const calculateRemainingTime = (reminder: string) => {
+    const now = new Date();
+    const reminderDate = new Date(reminder);
+    const remainingTime = reminderDate.getTime() - now.getTime();
+
+    if (remainingTime < 0) {
+      return "Reminder time has passed.";
+    }
+
+    const days = Math.floor(remainingTime / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((remainingTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((remainingTime % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((remainingTime % (1000 * 60)) / 1000);
+
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  };
+
+  // Update remaining times for reminders every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newRemainingTimes: { [key: number]: string } = {};
+      tasks.forEach(task => {
+        if (task.reminder) {
+          newRemainingTimes[task.id] = calculateRemainingTime(task.reminder);
+        }
+      });
+      setRemainingTimes(newRemainingTimes);
+    }, 1000);
+
+    return () => clearInterval(interval); // Cleanup on unmount or tasks change
+  }, [tasks]);
 
   return (
     <div className="w-full md:px-10 z-10">
@@ -46,15 +101,15 @@ const TodoList: React.FC = () => {
         <p className="font-semibold text-lg">Task</p>
         <p className="font-semibold text-lg">Status</p>
         <p className="font-semibold text-lg">Delete</p>
-        <p className="font-semibold text-lg">Set Timer</p>
+        <p className="font-semibold text-lg">Set Reminder</p>
 
         <AnimatePresence>
           {tasks.map((task: Task) => (
             <motion.div
               key={task.id}
-              initial={{ opacity: 0, height: 0, overflow: 'hidden' }}
+              initial={{ opacity: 0, height: 0, overflow: "hidden" }}
               animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0, transition: { duration: 0.5 } }}
+              exit={{ opacity: 0, height: 0, transition: { duration: 0.5 } }} // Smooth exit animation
               transition={{ duration: 0.3 }}
               className="contents"
             >
@@ -89,7 +144,7 @@ const TodoList: React.FC = () => {
                       </button>
                       <button
                         className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-200"
-                        onClick={() => setConfirmDeleteId(null)} // Close the popover
+                        onClick={() => setConfirmDeleteId(null)}
                       >
                         No
                       </button>
@@ -98,33 +153,32 @@ const TodoList: React.FC = () => {
                 )}
               </Popover>
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Clock
-                    className="cursor-pointer hover:text-blue-500 transition-colors"
-                    onClick={() => setSelectedTaskId(task.id)}
-                  />
-                </PopoverTrigger>
-
-                {selectedTaskId === task.id && (
-                  <PopoverContent className="p-2 bg-black border shadow-md rounded-md">
-                    <ShadcnCalendar
-                      mode="single"
-                      selected={selectedDate} // This is now Date | undefined
-                      onSelect={(date) => {
-                        setSelectedDate(date); // Set selectedDate to the selected date
-                        handleSetReminder(task.id, date); // Pass the date to your reminder handler
-                      }}
-                    />
-                  </PopoverContent>
-                )}
-              </Popover>
-
-              {/* Countdown display */}
-              {task.reminder && (
+              {task.reminder ? (
                 <p className="text-sm text-gray-500">
-                  Reminder: {formatDistanceToNow(new Date(task.reminder))} left
+                  Remaining Time: {remainingTimes[task.id] || calculateRemainingTime(task.reminder)}
                 </p>
+              ) : (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Clock
+                      className="cursor-pointer hover:text-blue-500 transition-colors"
+                      onClick={() => setSelectedTaskId(task.id)}
+                    />
+                  </PopoverTrigger>
+
+                  {selectedTaskId === task.id && (
+                    <PopoverContent className="p-2 bg-black border shadow-md rounded-md">
+                      <ShadcnCalendar
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={(date) => {
+                          setSelectedDate(date);
+                          handleSetReminder(task.id, date);
+                        }}
+                      />
+                    </PopoverContent>
+                  )}
+                </Popover>
               )}
             </motion.div>
           ))}
