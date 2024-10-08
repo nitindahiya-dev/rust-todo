@@ -1,98 +1,110 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useSelector, useDispatch } from "react-redux";
-import { deleteTask, toggleStatus, setReminder } from "../slice/tasksSlice";
+import { deleteTask, toggleStatus, setTasks } from "../slice/tasksSlice"; // Import setTasks correctly
 import { RootState } from "../store/store";
 import { Trash2, Clock } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Define Task interface
 interface Task {
   id: number;
   task: string;
-  status: string;
-  reminder?: string; // Reminder stored as a string (ISO format)
+  status: "Pending" | "Completed";
+  reminder?: string | null; // Allow reminder to be null or undefined
 }
 
 const TodoList: React.FC = () => {
-  const tasks = useSelector((state: RootState) => state.tasks.tasks) as Task[];
   const dispatch = useDispatch();
-
+  const tasks = useSelector((state: RootState) => state.tasks.tasks); // Fetch tasks from Redux state
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
-  const [removalQueue, setRemovalQueue] = useState<number | null>(null); // Track the task being removed
-  const [remainingTimes, setRemainingTimes] = useState<{ [key: number]: string }>({});
+  const [removalQueue, setRemovalQueue] = useState<number | null>(null);
+
+  // Function to handle deleting a task
+  const handleDeleteTask = useCallback(async (id: number) => {
+    try {
+      await fetch(`http://localhost:5000/tasks/${id}`, {
+        method: "DELETE",
+      });
+      dispatch(deleteTask(id)); // Dispatch deleteTask action
+      setConfirmDeleteId(null);
+      // Refresh tasks after delete (if needed, or rely on existing Redux state)
+    } catch (error) {
+      console.error("Failed to delete task:", error);
+    }
+  }, [dispatch]);
+
+  // Fetch tasks from API on component mount
+  useEffect(() => {
+    const fetchTasks = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/tasks");
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        const data = await response.json();
+        // Dispatch action to set tasks in Redux
+        dispatch(setTasks(data)); // Dispatching the fetched tasks to Redux
+      } catch (error) {
+        console.error("Failed to fetch tasks:", error);
+      }
+    };
+
+    fetchTasks();
+  }, [dispatch]);
 
   // Handle task removal after marking it as completed
   useEffect(() => {
     if (removalQueue !== null) {
       const timer = setTimeout(() => {
-        dispatch(deleteTask(removalQueue));
+        handleDeleteTask(removalQueue); // Call delete API
         setRemovalQueue(null);
-      }, 3000); // 3-second delay
+      }, 3000);
 
       return () => clearTimeout(timer);
     }
-  }, [removalQueue, dispatch]);
+  }, [removalQueue, handleDeleteTask]); // Added handleDeleteTask to the dependency array
 
   // Function to set the reminder for a task
-  const handleSetReminder = (id: number, reminderDate: Date | undefined) => {
+  const handleSetReminder = async (id: number, reminderDate: Date | undefined) => {
     if (reminderDate) {
-      dispatch(setReminder({ id, reminder: reminderDate.toISOString() })); // Store as ISO string
-      setSelectedTaskId(null); // Close the reminder picker after setting
+      try {
+        await fetch(`http://localhost:5000/tasks/${id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ reminder: reminderDate.toISOString() }),
+        });
+        setSelectedTaskId(null);
+      } catch (error) {
+        console.error("Failed to set reminder:", error);
+      }
     }
   };
 
   // Function to handle toggling task status
-  const handleToggleStatus = (id: number) => {
-    dispatch(toggleStatus(id));
-
-    // Add to the removal queue if the task is marked as completed
+  const handleToggleStatus = async (id: number) => {
     const task = tasks.find((task) => task.id === id);
-    if (task?.status === "Pending") {
-      setRemovalQueue(id);
+    if (task) {
+      const newStatus = task.status === "Pending" ? "Completed" : "Pending";
+      try {
+        await fetch(`http://localhost:5000/tasks/${id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: newStatus }),
+        });
+        dispatch(toggleStatus(id)); // Dispatch the toggleStatus action
+        setRemovalQueue(newStatus === "Completed" ? id : null);
+      } catch (error) {
+        console.error("Failed to toggle task status:", error);
+      }
     }
   };
-
-  // Function to handle deleting a task
-  const handleDeleteTask = (id: number) => {
-    dispatch(deleteTask(id)); // Dispatch delete action
-    setConfirmDeleteId(null); // Close the confirmation popup
-  };
-
-  // Function to calculate remaining time for reminders
-  const calculateRemainingTime = (reminder: string) => {
-    const now = new Date();
-    const reminderDate = new Date(reminder);
-    const remainingTime = reminderDate.getTime() - now.getTime();
-
-    if (remainingTime < 0) {
-      return "Reminder time has passed.";
-    }
-
-    const days = Math.floor(remainingTime / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((remainingTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((remainingTime % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((remainingTime % (1000 * 60)) / 1000);
-
-    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
-  };
-
-  // Update remaining times for reminders every second
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const newRemainingTimes: { [key: number]: string } = {};
-      tasks.forEach(task => {
-        if (task.reminder) {
-          newRemainingTimes[task.id] = calculateRemainingTime(task.reminder);
-        }
-      });
-      setRemainingTimes(newRemainingTimes);
-    }, 1000);
-
-    return () => clearInterval(interval); // Cleanup on unmount or tasks change
-  }, [tasks]);
 
   return (
     <div className="w-full md:px-10 z-10">
@@ -109,12 +121,11 @@ const TodoList: React.FC = () => {
               key={task.id}
               initial={{ opacity: 0, height: 0, overflow: "hidden" }}
               animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0, transition: { duration: 0.5 } }} // Smooth exit animation
+              exit={{ opacity: 0, height: 0, transition: { duration: 0.5 } }}
               transition={{ duration: 0.3 }}
               className="contents"
             >
               <p className="font-semibold text-md">{task.task}</p>
-
               <button
                 onClick={() => handleToggleStatus(task.id)}
                 className={`px-4 py-1 rounded-md inline-block font-semibold text-md text-black ${
@@ -134,52 +145,30 @@ const TodoList: React.FC = () => {
 
                 {confirmDeleteId === task.id && (
                   <PopoverContent className="p-4 bg-white border shadow-md rounded-md">
-                    <p className="font-semibold">Are you sure you want to delete this task?</p>
-                    <div className="flex justify-end mt-4 space-x-2">
-                      <button
-                        className="px-4 py-2 text-red-600 border border-red-600 rounded hover:bg-red-600 hover:text-white"
-                        onClick={() => handleDeleteTask(task.id)}
-                      >
-                        Yes
-                      </button>
-                      <button
-                        className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-200"
-                        onClick={() => setConfirmDeleteId(null)}
-                      >
-                        No
-                      </button>
-                    </div>
+                    <p>Are you sure you want to delete this task?</p>
+                    <button onClick={() => handleDeleteTask(task.id)}>Yes</button>
+                    <button onClick={() => setConfirmDeleteId(null)}>No</button>
                   </PopoverContent>
                 )}
               </Popover>
 
-              {task.reminder ? (
-                <p className="text-sm text-gray-500">
-                  Remaining Time: {remainingTimes[task.id] || calculateRemainingTime(task.reminder)}
-                </p>
-              ) : (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Clock
-                      className="cursor-pointer hover:text-blue-500 transition-colors"
-                      onClick={() => setSelectedTaskId(task.id)}
-                    />
-                  </PopoverTrigger>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Clock
+                    className="cursor-pointer hover:text-blue-500 transition-colors"
+                    onClick={() => setSelectedTaskId(task.id)}
+                  />
+                </PopoverTrigger>
 
-                  {selectedTaskId === task.id && (
-                    <PopoverContent className="p-2 bg-black border shadow-md rounded-md">
-                      <ShadcnCalendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={(date) => {
-                          setSelectedDate(date);
-                          handleSetReminder(task.id, date);
-                        }}
-                      />
-                    </PopoverContent>
-                  )}
-                </Popover>
-              )}
+                {selectedTaskId === task.id && (
+                  <PopoverContent className="p-4 bg-white border shadow-md rounded-md">
+                    <ShadcnCalendar
+                      selected={undefined} // Removed unused `selectedDate`
+                      onSelect={(date: Date | undefined) => handleSetReminder(task.id, date)}
+                    />
+                  </PopoverContent>
+                )}
+              </Popover>
             </motion.div>
           ))}
         </AnimatePresence>

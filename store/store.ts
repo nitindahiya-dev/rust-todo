@@ -1,5 +1,5 @@
 import { configureStore } from '@reduxjs/toolkit';
-import tasksReducer from '@/slice/tasksSlice'; // Adjust the path if necessary
+import tasksReducer from '@/slice/tasksSlice'; // Ensure the path is correct
 
 // Create the store
 const store = configureStore({
@@ -8,7 +8,7 @@ const store = configureStore({
   },
 });
 
-// Export RootState type to use in components
+// Export RootState and AppDispatch types for use in components
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;
 
